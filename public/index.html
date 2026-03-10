@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Deploy Status — kompot.ai</title>
+  <link id="favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%23666'/></svg>">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -230,6 +231,7 @@
           }
         }
         render();
+        updateFavicon();
       } catch (e) {
         document.getElementById('root').innerHTML = '<div class="error-msg">Ошибка: ' + esc(e.message) + '</div>';
       }
@@ -458,6 +460,33 @@
       layout.appendChild(left);
       layout.appendChild(right);
       root.appendChild(layout);
+    }
+
+    function updateFavicon() {
+      // Stage is apps[0]
+      const stage = state.apps[0];
+      if (!stage || !stage.deployments.length) return;
+      const latest = stage.deployments[0].status;
+      let color, symbol;
+      if (latest === 'finished') {
+        color = '#22c55e'; symbol = '';
+      } else if (latest === 'failed') {
+        color = '#ef4444'; symbol = '';
+      } else if (latest === 'in_progress') {
+        color = '#eab308'; symbol = '';
+      } else if (latest === 'queued') {
+        color = '#818cf8'; symbol = '';
+      } else {
+        color = '#666'; symbol = '';
+      }
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">` +
+        `<circle cx="50" cy="50" r="45" fill="${color}"/>` +
+        `</svg>`;
+      const el = document.getElementById('favicon');
+      if (el) el.href = 'data:image/svg+xml,' + encodeURIComponent(svg);
+      // Also update title with status indicator
+      const prefix = latest === 'finished' ? '✅' : latest === 'failed' ? '🔴' : latest === 'in_progress' ? '🟡' : '';
+      document.title = (prefix ? prefix + ' ' : '') + 'Deploy Status — kompot.ai';
     }
 
     function hasActiveDeployments() {
