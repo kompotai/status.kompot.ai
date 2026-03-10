@@ -153,6 +153,13 @@
     .log-line.stderr { color: #f87171; }
     .log-line.stdout { color: #a3a3a3; }
     .logs-loading { padding: 1rem; color: #555; font-size: 0.8rem; text-align: center; }
+    .live-indicator {
+      display: inline-block; font-size: 0.65rem; font-weight: 700;
+      color: #22c55e; background: #0d3320;
+      padding: 0.1rem 0.4rem; border-radius: 4px; margin-left: 0.5rem;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
     .load-more-indicator {
       text-align: center; padding: 0.75rem; color: #555; font-size: 0.8rem;
@@ -226,8 +233,12 @@
         });
         if (state.selectedDeploy) {
           const app = state.apps[state.activeEnv];
-          if (!app || !app.deployments.find(d => d.uuid === state.selectedDeploy.uuid)) {
+          const updated = app && app.deployments.find(d => d.uuid === state.selectedDeploy.uuid);
+          if (updated) {
+            state.selectedDeploy = updated;
+          } else {
             state.selectedDeploy = null;
+            stopLogsPolling();
           }
         }
         render();
@@ -279,6 +290,51 @@
       });
     }
 
+    // --- URL routing ---
+    function envSlug(app) {
+      if (!app || !app.repository) return '';
+      const branch = app.repository.split(':').pop();
+      if (branch === 'production') return 'production';
+      return 'stage';
+    }
+
+    function updateHash() {
+      const app = state.apps[state.activeEnv];
+      if (!app) return;
+      const slug = envSlug(app);
+      if (state.selectedDeploy) {
+        history.replaceState(null, '', '#/' + slug + '/' + state.selectedDeploy.uuid);
+      } else {
+        history.replaceState(null, '', '#/' + slug);
+      }
+    }
+
+    function restoreFromHash() {
+      const hash = location.hash.replace(/^#\/?/, '');
+      if (!hash) return;
+      const parts = hash.split('/');
+      const envName = parts[0];
+      const deployUuid = parts[1];
+      // Find matching env
+      const idx = state.apps.findIndex(a => envSlug(a) === envName);
+      if (idx >= 0) state.activeEnv = idx;
+      // Find matching deploy
+      if (deployUuid && state.apps[state.activeEnv]) {
+        const d = state.apps[state.activeEnv].deployments.find(d => d.uuid === deployUuid);
+        if (d) {
+          state.selectedDeploy = d;
+          state.logs = null;
+          state.logsLoading = true;
+          loadLogs(d.uuid);
+        }
+      }
+    }
+
+    window.addEventListener('hashchange', () => {
+      restoreFromHash();
+      render();
+    });
+
     function switchEnv(idx) {
       state.activeEnv = idx;
       state.selectedDeploy = null;
@@ -286,6 +342,7 @@
       state.logsLoading = false;
       state.loadingMore = false;
       state.scrollPos = 0;
+      updateHash();
       render();
     }
 
@@ -293,8 +350,37 @@
       state.selectedDeploy = deploy;
       state.logs = null;
       state.logsLoading = true;
+      updateHash();
       render();
       loadLogs(deploy.uuid);
+    }
+
+    // --- Logs with live polling for in_progress ---
+    let logsTimer = null;
+
+    function stopLogsPolling() {
+      clearInterval(logsTimer);
+      logsTimer = null;
+    }
+
+    function startLogsPolling(uuid) {
+      stopLogsPolling();
+      logsTimer = setInterval(() => {
+        if (!state.selectedDeploy || state.selectedDeploy.uuid !== uuid) {
+          stopLogsPolling();
+          return;
+        }
+        // Check if deploy is still active
+        const app = state.apps[state.activeEnv];
+        const deploy = app && app.deployments.find(d => d.uuid === uuid);
+        if (!deploy || (deploy.status !== 'in_progress' && deploy.status !== 'queued')) {
+          stopLogsPolling();
+          // Final fetch to get complete logs
+          loadLogs(uuid);
+          return;
+        }
+        loadLogs(uuid);
+      }, 3000);
     }
 
     async function loadLogs(uuid) {
@@ -304,14 +390,52 @@
         if (state.selectedDeploy && state.selectedDeploy.uuid === uuid) {
           state.logs = data.ok ? data.logs : [{ type: 'stderr', output: 'Ошибка: ' + data.error }];
           state.logsLoading = false;
-          render();
+          renderLogs();
         }
       } catch (e) {
         if (state.selectedDeploy && state.selectedDeploy.uuid === uuid) {
           state.logs = [{ type: 'stderr', output: 'Ошибка: ' + e.message }];
           state.logsLoading = false;
-          render();
+          renderLogs();
         }
+      }
+      // Start polling if deploy is active
+      if (state.selectedDeploy && state.selectedDeploy.uuid === uuid && !logsTimer) {
+        const app = state.apps[state.activeEnv];
+        const deploy = app && app.deployments.find(d => d.uuid === uuid);
+        if (deploy && (deploy.status === 'in_progress' || deploy.status === 'queued')) {
+          startLogsPolling(uuid);
+        }
+      }
+    }
+
+    // Partial re-render of just the logs section (avoids full re-render flicker)
+    function renderLogs() {
+      const container = document.querySelector('.logs-section');
+      if (!container) { render(); return; }
+      let logsHtml = '';
+      if (state.logsLoading) {
+        logsHtml = '<div class="log-container"><div class="logs-loading">Загрузка логов...</div></div>';
+      } else if (state.logs) {
+        const lines = state.logs.map(l =>
+          '<div class="log-line ' + esc(l.type) + '">' + esc(l.output) + '</div>'
+        ).join('');
+        logsHtml = '<div class="log-container"><div class="log-lines">' + lines + '</div></div>';
+      }
+      // Check if deploy is live
+      const isLive = state.selectedDeploy && state.apps[state.activeEnv] &&
+        state.apps[state.activeEnv].deployments.find(d =>
+          d.uuid === state.selectedDeploy.uuid && (d.status === 'in_progress' || d.status === 'queued'));
+      container.innerHTML =
+        '<div class="logs-header">' +
+          '<div class="logs-title">Build Logs' + (isLive ? ' <span class="live-indicator">LIVE</span>' : '') + '</div>' +
+          (state.logs && state.logs.length ? '<button id="copy-logs-btn" class="copy-btn" onclick="copyLogs()">Копировать</button>' : '') +
+        '</div>' +
+        logsHtml;
+      // Auto-scroll to bottom for live logs
+      if (isLive) {
+        const panel = document.querySelector('.panel-right');
+        if (panel) panel.scrollTop = panel.scrollHeight;
       }
     }
 
@@ -503,7 +627,11 @@
       }, interval);
     }
 
-    load().then(schedulePoll);
+    load().then(() => {
+      restoreFromHash();
+      render();
+      schedulePoll();
+    });
   </script>
 </body>
 </html>
