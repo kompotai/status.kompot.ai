@@ -227,10 +227,33 @@
         const res = await fetch('/api/status');
         const data = await res.json();
         if (!data.ok) throw new Error(data.error);
-        state.apps = data.apps;
-        state.apps.forEach(a => {
-          a.hasMore = a.deployments.length < (a.total || 0);
+        // Merge: update top deployments + app meta, keep lazy-loaded ones
+        data.apps.forEach((fresh, i) => {
+          const existing = state.apps[i];
+          if (!existing) {
+            fresh.hasMore = fresh.deployments.length < (fresh.total || 0);
+            state.apps[i] = fresh;
+            return;
+          }
+          existing.name = fresh.name;
+          existing.fqdn = fresh.fqdn;
+          existing.status = fresh.status;
+          existing.repository = fresh.repository;
+          // Merge deployments: update existing, prepend new
+          const freshMap = new Map(fresh.deployments.map(d => [d.uuid, d]));
+          // Update statuses of already-loaded deploys
+          existing.deployments.forEach((d, j) => {
+            const u = freshMap.get(d.uuid);
+            if (u) existing.deployments[j] = u;
+          });
+          // Prepend any new deploys not yet in list
+          const existingSet = new Set(existing.deployments.map(d => d.uuid));
+          const brandNew = fresh.deployments.filter(d => !existingSet.has(d.uuid));
+          if (brandNew.length) existing.deployments.unshift(...brandNew);
+          existing.hasMore = existing.deployments.length < (fresh.total || 0);
         });
+        if (state.apps.length > data.apps.length) state.apps.length = data.apps.length;
+        // Update selected deploy reference
         if (state.selectedDeploy) {
           const app = state.apps[state.activeEnv];
           const updated = app && app.deployments.find(d => d.uuid === state.selectedDeploy.uuid);
@@ -347,6 +370,7 @@
     }
 
     function selectDeploy(deploy) {
+      stopLogsPolling();
       state.selectedDeploy = deploy;
       state.logs = null;
       state.logsLoading = true;

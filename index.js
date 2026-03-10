@@ -53,7 +53,7 @@ app.get("/api/status", async (c) => {
       APPS.map(async (appDef) => {
         const [appInfo, deployments] = await Promise.all([
           fetchAppInfo(appDef.uuid),
-          fetchDeployments(appDef.uuid, 10),
+          fetchDeployments(appDef.uuid, 20),
         ]);
         return {
           uuid: appDef.uuid,
