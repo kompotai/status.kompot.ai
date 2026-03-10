@@ -484,9 +484,7 @@
         `</svg>`;
       const el = document.getElementById('favicon');
       if (el) el.href = 'data:image/svg+xml,' + encodeURIComponent(svg);
-      // Also update title with status indicator
-      const prefix = latest === 'finished' ? '✅' : latest === 'failed' ? '🔴' : latest === 'in_progress' ? '🟡' : '';
-      document.title = (prefix ? prefix + ' ' : '') + 'Deploy Status — kompot.ai';
+      document.title = 'Deploy Status — kompot.ai';
     }
 
     function hasActiveDeployments() {
