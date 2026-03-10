@@ -175,7 +175,7 @@
     let state = {
       apps: [], activeEnv: 0, selectedDeploy: null,
       logs: null, logsLoading: false,
-      loadingMore: false, hasMore: true, scrollPos: 0,
+      loadingMore: false, hasMore: true, scrollPos: 0, rightScrollPos: 0,
     };
     const PAGE_SIZE = 20;
 
@@ -365,6 +365,7 @@
       state.logsLoading = false;
       state.loadingMore = false;
       state.scrollPos = 0;
+      state.rightScrollPos = 0;
       updateHash();
       render();
     }
@@ -374,6 +375,7 @@
       state.selectedDeploy = deploy;
       state.logs = null;
       state.logsLoading = true;
+      state.rightScrollPos = 0;
       updateHash();
       render();
       loadLogs(deploy.uuid);
@@ -605,9 +607,11 @@
           '</div>';
       }
 
+      right.addEventListener('scroll', () => { state.rightScrollPos = right.scrollTop; });
       layout.appendChild(left);
       layout.appendChild(right);
       root.appendChild(layout);
+      requestAnimationFrame(() => { right.scrollTop = state.rightScrollPos; });
     }
 
     function updateFavicon() {
