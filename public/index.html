@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deploy Status — kompot.ai</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0a0a0a; color: #e0e0e0;
+      height: 100vh; overflow: hidden;
+    }
+    .layout { display: flex; height: 100vh; }
+
+    /* Left panel */
+    .panel-left {
+      width: 33.333%; min-width: 320px;
+      border-right: 1px solid #1e1e1e;
+      display: flex; flex-direction: column;
+      background: #0f0f0f;
+    }
+    .env-switcher {
+      display: flex; padding: 1rem;
+      gap: 0; border-bottom: 1px solid #1e1e1e;
+    }
+    .env-btn {
+      flex: 1; padding: 0.5rem 0; text-align: center;
+      font-size: 0.85rem; font-weight: 600;
+      background: transparent; color: #666;
+      border: 1px solid #2a2a2a; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .env-btn:first-child { border-radius: 8px 0 0 8px; }
+    .env-btn:last-child { border-radius: 0 8px 8px 0; border-left: none; }
+    .env-btn.active { background: #1a1a1a; color: #fff; border-color: #444; }
+    .env-btn:hover:not(.active) { color: #aaa; }
+
+    .app-meta {
+      padding: 0.75rem 1rem; border-bottom: 1px solid #1e1e1e;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .app-meta-name { font-weight: 600; font-size: 0.9rem; color: #fff; }
+    .app-meta-url { font-size: 0.75rem; color: #555; }
+    .app-meta-url a { color: #555; text-decoration: none; }
+    .app-meta-url a:hover { color: #888; }
+
+    .deploy-list {
+      flex: 1; overflow-y: auto;
+      scrollbar-width: thin; scrollbar-color: #333 transparent;
+    }
+
+    .deploy-item {
+      display: flex; align-items: center; gap: 0.6rem;
+      padding: 0.7rem 1rem;
+      border-bottom: 1px solid #1a1a1a;
+      cursor: pointer; transition: background 0.1s;
+      font-size: 0.82rem;
+    }
+    .deploy-item:hover { background: #161616; }
+    .deploy-item.selected { background: #1a1a2e; }
+
+    .deploy-item .commit-hash {
+      font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+      color: #888; min-width: 58px; font-size: 0.8rem;
+    }
+    .deploy-item .commit-msg {
+      flex: 1; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; color: #bbb;
+    }
+    .deploy-item .deploy-time {
+      color: #555; font-size: 0.75rem; white-space: nowrap;
+    }
+
+    /* Right panel */
+    .panel-right {
+      flex: 1; overflow-y: auto; padding: 2rem;
+      scrollbar-width: thin; scrollbar-color: #333 transparent;
+    }
+    .detail-empty {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; color: #444; font-size: 0.9rem;
+    }
+    .detail-header {
+      margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem;
+    }
+    .detail-top {
+      display: flex; gap: 1.5rem; margin-bottom: 1rem;
+    }
+    .detail-commit-msg {
+      flex: 1; font-size: 0.8rem; color: #999; line-height: 1.5;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .detail-sidebar {
+      min-width: 200px; font-size: 0.78rem;
+      display: flex; flex-direction: column; gap: 0.5rem;
+      flex-shrink: 0;
+    }
+    .detail-sidebar .meta-row { display: flex; flex-direction: column; gap: 0.1rem; }
+    .detail-sidebar .meta-label { color: #555; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    .detail-sidebar .meta-value { color: #aaa; }
+    .detail-sidebar .meta-value code {
+      font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+      font-size: 0.75rem; background: #1a1a1a; padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+    }
+    .detail-sidebar a { color: #6d8ac4; text-decoration: none; }
+    .detail-sidebar a:hover { color: #8da8e0; text-decoration: underline; }
+
+    /* Badges */
+    .badge {
+      display: inline-block; padding: 0.15rem 0.5rem;
+      border-radius: 5px; font-size: 0.7rem; font-weight: 600;
+      text-transform: uppercase; white-space: nowrap;
+    }
+    .badge-sm { font-size: 0.65rem; padding: 0.1rem 0.4rem; }
+    .badge-running, .badge-running\:healthy { background: #0d3320; color: #4ade80; }
+    .badge-finished { background: #0d3320; color: #4ade80; }
+    .badge-failed { background: #3b1111; color: #f87171; }
+    .badge-in_progress { background: #2d2006; color: #fbbf24; }
+    .badge-queued { background: #1a1a2e; color: #818cf8; }
+    .badge-cancelled-by-user { background: #1f1f1f; color: #999; }
+    .badge-unknown { background: #1f1f1f; color: #666; }
+
+    /* Logs */
+    .logs-section { margin-top: 1.5rem; }
+    .logs-title {
+      font-size: 0.85rem; font-weight: 600; color: #888;
+      margin-bottom: 0.5rem;
+    }
+    .log-container {
+      margin-top: 0.75rem; background: #111; border: 1px solid #1e1e1e;
+      border-radius: 8px; overflow: hidden;
+    }
+    .logs-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+    .copy-btn {
+      background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px;
+      color: #888; font-size: 0.75rem; padding: 0.3rem 0.6rem;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .copy-btn:hover { background: #222; color: #fff; }
+    .copy-btn.copied { color: #4ade80; border-color: #0d3320; }
+    .log-lines {
+      padding: 0.75rem;
+      font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+      font-size: 0.78rem; line-height: 1.6;
+    }
+    .log-line { white-space: pre-wrap; word-break: break-all; }
+    .log-line.stderr { color: #f87171; }
+    .log-line.stdout { color: #a3a3a3; }
+    .logs-loading { padding: 1rem; color: #555; font-size: 0.8rem; text-align: center; }
+
+    .load-more-indicator {
+      text-align: center; padding: 0.75rem; color: #555; font-size: 0.8rem;
+    }
+    .load-more-sentinel { height: 1px; }
+    .loading { display: flex; align-items: center; justify-content: center; height: 100%; color: #666; }
+    .error-msg { background: #3b1111; color: #f87171; padding: 1rem; border-radius: 8px; margin: 1rem; }
+  </style>
+</head>
+<body>
+  <div id="root"><div class="loading">Загрузка...</div></div>
+  <script>
+    let state = {
+      apps: [], activeEnv: 0, selectedDeploy: null,
+      logs: null, logsLoading: false,
+      loadingMore: false, hasMore: true, scrollPos: 0,
+    };
+    const PAGE_SIZE = 20;
+
+    function formatTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      const now = new Date();
+      const diff = now - d;
+      if (diff < 60000) return 'только что';
+      if (diff < 3600000) return Math.floor(diff / 60000) + ' мин. назад';
+      if (diff < 86400000) return Math.floor(diff / 3600000) + ' ч. назад';
+      return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatTimeFull(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleString('ru-RU', {
+        day: 'numeric', month: 'long', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+    }
+
+    function statusLabel(s) {
+      const m = { finished: 'OK', failed: 'FAILED', in_progress: 'DEPLOYING', queued: 'QUEUED', 'cancelled-by-user': 'CANCELLED', 'running': 'RUNNING', 'running:healthy': 'RUNNING' };
+      return m[s] || s.toUpperCase();
+    }
+
+    function badgeClass(s) {
+      return 'badge badge-' + s.replace(/[^a-z0-9:_-]/gi, '');
+    }
+
+    function esc(str) {
+      const el = document.createElement('span');
+      el.textContent = str;
+      return el.innerHTML;
+    }
+
+    function envLabel(app) {
+      if (app.repository && app.repository.includes(':')) {
+        const branch = app.repository.split(':').pop();
+        if (branch === 'production') return 'Production';
+        if (branch === 'master' || branch === 'main') return 'Stage';
+      }
+      return app.name;
+    }
+
+    async function load() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error);
+        state.apps = data.apps;
+        state.apps.forEach(a => {
+          a.hasMore = a.deployments.length < (a.total || 0);
+        });
+        if (state.selectedDeploy) {
+          const app = state.apps[state.activeEnv];
+          if (!app || !app.deployments.find(d => d.uuid === state.selectedDeploy.uuid)) {
+            state.selectedDeploy = null;
+          }
+        }
+        render();
+      } catch (e) {
+        document.getElementById('root').innerHTML = '<div class="error-msg">Ошибка: ' + esc(e.message) + '</div>';
+      }
+    }
+
+    async function loadMore() {
+      if (state.loadingMore) return;
+      const app = state.apps[state.activeEnv];
+      if (!app || !app.hasMore) return;
+      state.loadingMore = true;
+      renderLoadingIndicator();
+      try {
+        const skip = app.deployments.length;
+        const res = await fetch('/api/apps/' + app.uuid + '/deployments?skip=' + skip + '&take=' + PAGE_SIZE);
+        const data = await res.json();
+        if (data.ok && state.apps[state.activeEnv]?.uuid === app.uuid) {
+          const existing = new Set(app.deployments.map(d => d.uuid));
+          const newDeploys = data.deployments.filter(d => !existing.has(d.uuid));
+          app.deployments.push(...newDeploys);
+          app.hasMore = app.deployments.length < (data.total || 0);
+        }
+      } catch (e) {
+        console.error('loadMore failed:', e);
+      }
+      state.loadingMore = false;
+      render();
+    }
+
+    function renderLoadingIndicator() {
+      const list = document.querySelector('.deploy-list');
+      if (!list || list.querySelector('.load-more-indicator')) return;
+      const el = document.createElement('div');
+      el.className = 'load-more-indicator';
+      el.textContent = 'Загрузка...';
+      list.appendChild(el);
+    }
+
+    function copyLogs() {
+      if (!state.logs) return;
+      const text = state.logs.map(l => l.output).join('\n');
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('copy-logs-btn');
+        if (btn) { btn.textContent = 'Скопировано'; btn.classList.add('copied'); }
+        setTimeout(() => { if (btn) { btn.textContent = 'Копировать'; btn.classList.remove('copied'); } }, 2000);
+      });
+    }
+
+    function switchEnv(idx) {
+      state.activeEnv = idx;
+      state.selectedDeploy = null;
+      state.logs = null;
+      state.logsLoading = false;
+      state.loadingMore = false;
+      state.scrollPos = 0;
+      render();
+    }
+
+    function selectDeploy(deploy) {
+      state.selectedDeploy = deploy;
+      state.logs = null;
+      state.logsLoading = true;
+      render();
+      loadLogs(deploy.uuid);
+    }
+
+    async function loadLogs(uuid) {
+      try {
+        const res = await fetch('/api/deployments/' + uuid + '/logs');
+        const data = await res.json();
+        if (state.selectedDeploy && state.selectedDeploy.uuid === uuid) {
+          state.logs = data.ok ? data.logs : [{ type: 'stderr', output: 'Ошибка: ' + data.error }];
+          state.logsLoading = false;
+          render();
+        }
+      } catch (e) {
+        if (state.selectedDeploy && state.selectedDeploy.uuid === uuid) {
+          state.logs = [{ type: 'stderr', output: 'Ошибка: ' + e.message }];
+          state.logsLoading = false;
+          render();
+        }
+      }
+    }
+
+    function render() {
+      const { apps, activeEnv, selectedDeploy } = state;
+      if (!apps.length) return;
+      const app = apps[activeEnv];
+
+      const root = document.getElementById('root');
+      root.innerHTML = '';
+
+      const layout = document.createElement('div');
+      layout.className = 'layout';
+
+      // Left panel
+      const left = document.createElement('div');
+      left.className = 'panel-left';
+
+      // Env switcher
+      const switcher = document.createElement('div');
+      switcher.className = 'env-switcher';
+      apps.forEach((a, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'env-btn' + (i === activeEnv ? ' active' : '');
+        btn.textContent = envLabel(a);
+        btn.onclick = () => switchEnv(i);
+        switcher.appendChild(btn);
+      });
+      left.appendChild(switcher);
+
+      // App meta
+      const meta = document.createElement('div');
+      meta.className = 'app-meta';
+      meta.innerHTML =
+        '<span class="app-meta-name">' + esc(app.name) + '</span>' +
+        '<span class="' + badgeClass(app.status) + ' badge-sm">' + statusLabel(app.status) + '</span>';
+      left.appendChild(meta);
+
+      if (app.fqdn) {
+        const urlDiv = document.createElement('div');
+        urlDiv.className = 'app-meta';
+        urlDiv.innerHTML = '<span class="app-meta-url"><a href="' + esc(app.fqdn) + '" target="_blank">' + esc(app.fqdn) + '</a></span>';
+        left.appendChild(urlDiv);
+      }
+
+      // Deploy list
+      const list = document.createElement('div');
+      list.className = 'deploy-list';
+      app.deployments.forEach(d => {
+        const item = document.createElement('div');
+        item.className = 'deploy-item' + (selectedDeploy && selectedDeploy.uuid === d.uuid ? ' selected' : '');
+        item.onclick = () => selectDeploy(d);
+        item.innerHTML =
+          '<span class="' + badgeClass(d.status) + ' badge-sm">' + statusLabel(d.status) + '</span>' +
+          '<span class="commit-hash">' + (d.commit ? esc(d.commit.slice(0, 7)) : '—') + '</span>' +
+          '<span class="commit-msg">' + esc((d.commitMessage || '—').split('\n')[0]) + '</span>' +
+          '<span class="deploy-time">' + formatTime(d.createdAt) + '</span>';
+        list.appendChild(item);
+      });
+      if (app.hasMore) {
+        const sentinel = document.createElement('div');
+        sentinel.className = 'load-more-sentinel';
+        list.appendChild(sentinel);
+      }
+      list.addEventListener('scroll', () => { state.scrollPos = list.scrollTop; });
+      left.appendChild(list);
+
+      // Restore scroll & set up IntersectionObserver
+      requestAnimationFrame(() => {
+        list.scrollTop = state.scrollPos;
+        const sentinel = list.querySelector('.load-more-sentinel');
+        if (sentinel) {
+          const obs = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting) { obs.disconnect(); loadMore(); }
+          }, { root: list, rootMargin: '200px' });
+          obs.observe(sentinel);
+        }
+      });
+
+      // Right panel
+      const right = document.createElement('div');
+      right.className = 'panel-right';
+
+      if (!selectedDeploy) {
+        right.innerHTML = '<div class="detail-empty">Выберите деплой для просмотра деталей</div>';
+      } else {
+        const d = selectedDeploy;
+        const duration = d.createdAt && d.updatedAt
+          ? Math.round((new Date(d.updatedAt) - new Date(d.createdAt)) / 1000)
+          : null;
+        const durationStr = duration !== null
+          ? (duration >= 60 ? Math.floor(duration / 60) + ' мин. ' + (duration % 60) + ' сек.' : duration + ' сек.')
+          : '—';
+
+        let logsHtml = '';
+        if (state.logsLoading) {
+          logsHtml = '<div class="log-container"><div class="logs-loading">Загрузка логов...</div></div>';
+        } else if (state.logs) {
+          const lines = state.logs.map(l =>
+            '<div class="log-line ' + esc(l.type) + '">' + esc(l.output) + '</div>'
+          ).join('');
+          logsHtml = '<div class="log-container"><div class="log-lines">' + lines + '</div></div>';
+        }
+
+        const repo = app.repository ? app.repository.split(':')[0] : '';
+        const commitUrl = repo && d.commit ? 'https://github.com/' + esc(repo) + '/commit/' + esc(d.commit) : '';
+
+        right.innerHTML =
+          '<div class="detail-header">' +
+            '<span class="' + badgeClass(d.status) + '">' + statusLabel(d.status) + '</span>' +
+            '<code style="font-family: \'SF Mono\', Monaco, monospace; font-size: 0.9rem; color: #888;">' + (d.commit ? esc(d.commit.slice(0, 7)) : '—') + '</code>' +
+          '</div>' +
+          '<div class="detail-top">' +
+            '<div class="detail-commit-msg">' + esc(d.commitMessage || '—') + '</div>' +
+            '<div class="detail-sidebar">' +
+              '<div class="meta-row">' +
+                '<span class="meta-label">Коммит</span>' +
+                '<span class="meta-value">' + (commitUrl
+                  ? '<a href="' + commitUrl + '" target="_blank"><code>' + esc(d.commit.slice(0, 10)) + '</code></a>'
+                  : '<code>' + (d.commit ? esc(d.commit.slice(0, 10)) : '—') + '</code>') +
+                '</span>' +
+              '</div>' +
+              '<div class="meta-row">' +
+                '<span class="meta-label">Создан</span>' +
+                '<span class="meta-value">' + formatTimeFull(d.createdAt) + '</span>' +
+              '</div>' +
+              '<div class="meta-row">' +
+                '<span class="meta-label">Обновлён</span>' +
+                '<span class="meta-value">' + formatTimeFull(d.updatedAt) + '</span>' +
+              '</div>' +
+              '<div class="meta-row">' +
+                '<span class="meta-label">Длительность</span>' +
+                '<span class="meta-value">' + durationStr + '</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="logs-section">' +
+            '<div class="logs-header">' +
+              '<div class="logs-title">Build Logs</div>' +
+              (state.logs && state.logs.length ? '<button id="copy-logs-btn" class="copy-btn" onclick="copyLogs()">Копировать</button>' : '') +
+            '</div>' +
+            logsHtml +
+          '</div>';
+      }
+
+      layout.appendChild(left);
+      layout.appendChild(right);
+      root.appendChild(layout);
+    }
+
+    load();
+    setInterval(load, 30000);
+  </script>
+</body>
+</html>
