@@ -460,8 +460,23 @@
       root.appendChild(layout);
     }
 
-    load();
-    setInterval(load, 30000);
+    function hasActiveDeployments() {
+      return state.apps.some(a =>
+        a.deployments.some(d => d.status === 'in_progress' || d.status === 'queued')
+      );
+    }
+
+    let pollTimer = null;
+    function schedulePoll() {
+      clearTimeout(pollTimer);
+      const interval = hasActiveDeployments() ? 5000 : 30000;
+      pollTimer = setTimeout(async () => {
+        await load();
+        schedulePoll();
+      }, interval);
+    }
+
+    load().then(schedulePoll);
   </script>
 </body>
 </html>
